@@ -1,0 +1,151 @@
+/* Common */
+union Command {
+  Create  : CreateCommand,
+  Drop    : DropCommand,
+  Insert  : InsertCommand,
+  Delete  : DeleteCommand,
+  Query   : QueryCommand,
+  Update  : UpdateCommand,
+}
+
+table EmptyCommandResponse {
+}
+
+union CommandResponse {
+  Create  : EmptyCommandResponse,
+  Drop    : EmptyCommandResponse,
+  Insert  : EmptyCommandResponse,
+  Delete  : EmptyCommandResponse,
+  Query   : EmptyCommandResponse,
+  Update  : EmptyCommandResponse,
+}
+
+table Packet {
+  crc     : uint32;
+  version : uint16;
+  timeout : uint16;
+  command : Command (required);
+}
+
+table ResponsePacket {
+  crc      : uint32;
+  version  : uint16; 
+  response : CommandResponse (required);
+}
+
+/* Filter */
+enum Sort : byte {
+  None = 0,
+  Asc  = 1,
+  Desc = 2
+}
+
+enum FilterType : uint8 {
+  None           = 0,
+  Equal          = 1,
+  Different      = 2,
+  OperatorBigger = 3,
+  Smaller        = 4,
+  BiggerEq       = 5,
+  SmallerEq      = 6,
+  LogicalAnd     = 7,
+  LogicalOr      = 8,
+  LogicalNot     = 9
+}
+
+union FilterValue {
+  immediate : Immediate,
+  reference : TableReference,
+  filter    : Filter
+}
+
+table Filter {
+  type        : FilterType;
+  left_value  : FilterValue;
+  right_value : FilterValue;
+}
+
+table Immediate {
+  num  :  uint64;
+  blob : [uint8];
+}
+
+table TableReference {
+  table_id : uint16;
+  field_id : uint8;
+}
+
+/* Create Command */
+table CreateCommand {
+  schema : TableSchema (required);
+  engine : string (required);
+}
+
+table TableSchema {
+  id     : uint16;
+  name   : string (required);
+  fields : [FieldDescription] (required);
+}
+
+enum FieldType : uint8 {
+  Blob   = 0,
+  UInt64 = 1,
+}
+
+table FieldDescription {
+  id   : uint8;
+  name : string (required);
+  type : FieldType;
+  size : uint16;
+}
+
+/* Drop Command */
+table DropCommand {
+  id : uint16;
+}
+
+/* Insert Command */
+table InsertCommand {
+  table_id : uint16;
+  row      : Row (required);
+}
+
+table Row {
+  len  : uint16; /* should be implicit, remove? */
+  data : [uint8] (required);
+}
+
+/* Delete Command */
+table DeleteCommand {
+  table_id : uint16;
+  filter   : Filter;
+  max      : uint16;
+}
+
+/* Query Command */
+table QueryCommand {
+  table_id    : uint16;
+  max_results : uint16;
+  sort        : Sort;
+  sort_field  : uint8;
+  filter      : Filter;
+}
+
+/* Update Command */
+union UpdateValue {
+  immediate : Immediate,
+  reference : TableReference
+}
+
+table FieldUpdate {
+  field_id : uint8;
+  value    : UpdateValue (required);
+}
+
+table UpdateCommand {
+  table_id : uint16;
+  filter   : Filter (required);
+  updates  : [FieldUpdate] (required);
+}
+
+root_type Packet;

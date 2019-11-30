@@ -1,0 +1,13 @@
+[package]
+name = "udpmonster"
+version = "0.1.0"
+authors = ["Davide Baldo <davide@baldo.me>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+flatbuffers = { git = "file:///home/davide/git/flatbuffers/",  branch = "master" }
+base64 = "0.11.0"
+crc32c = "0.4.0"
+lockfree = "0.5.1"

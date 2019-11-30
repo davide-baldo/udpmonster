@@ -1,0 +1,7 @@
+#!/bin/bash
+
+set -xe
+
+cd $(dirname $0)
+flatc --rust udpmonster.fbs --gen-mutable
+mv *_generated.rs ../src/flat.rs
