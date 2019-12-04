@@ -1237,105 +1237,6 @@ impl<'a: 'b, 'b> FilterBuilder<'a, 'b> {
   }
 }
 
-pub enum ImmediateOffset {}
-#[derive(Copy, Clone, Debug, PartialEq)]
-
-pub struct Immediate<'a> {
-  pub _tab: flatbuffers::Table<'a>,
-}
-
-impl<'a> flatbuffers::Follow<'a> for Immediate<'a> {
-    type Inner = Immediate<'a>;
-    #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        Self {
-            _tab: flatbuffers::Table { buf: buf, loc: loc },
-        }
-    }
-}
-
-impl<'a> Immediate<'a> {
-    #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-        Immediate {
-            _tab: table,
-        }
-    }
-    #[allow(unused_mut)]
-    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
-        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
-        args: &'args ImmediateArgs<'args>) -> flatbuffers::WIPOffset<Immediate<'bldr>> {
-      let mut builder = ImmediateBuilder::new(_fbb);
-      builder.add_num(args.num);
-      if let Some(x) = args.blob { builder.add_blob(x); }
-      builder.finish()
-    }
-
-    #[allow(unused_mut)]
-    pub fn write_to<'wr_to>(&self,
-          _fbb: &mut flatbuffers::FlatBufferBuilder<'wr_to>) -> flatbuffers::WIPOffset<Immediate<'wr_to>> {
-      let num = self.num();
-      let blob =  { match self.blob() { Some(u) => Some(_fbb.create_vector_direct(u)), _ => None } };
-      let mut builder = ImmediateBuilder::new(_fbb);
-      builder.add_num(num);
-      if let Some(u) = blob { builder.add_blob(u); } 
-      builder.finish()
-    }
-
-    pub const VT_NUM: flatbuffers::VOffsetT = 4;
-    pub const VT_BLOB: flatbuffers::VOffsetT = 6;
-
-  #[inline]
-  pub fn num(&self) -> u64 {
-    self._tab.get::<u64>(Immediate::VT_NUM, Some(0)).unwrap()
-  }
-  #[inline]
-  pub fn blob(&self) -> Option<&'a [u8]> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u8>>>(Immediate::VT_BLOB, None).map(|v| v.safe_slice())
-  }
-}
-
-pub struct ImmediateArgs<'a> {
-    pub num: u64,
-    pub blob: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a ,  u8>>>,
-}
-impl<'a> Default for ImmediateArgs<'a> {
-    #[inline]
-    fn default() -> Self {
-        ImmediateArgs {
-            num: 0,
-            blob: None,
-        }
-    }
-}
-pub struct ImmediateBuilder<'a: 'b, 'b> {
-  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
-  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
-}
-impl<'a: 'b, 'b> ImmediateBuilder<'a, 'b> {
-  #[inline]
-  pub fn add_num(&mut self, num: u64) {
-    self.fbb_.push_slot::<u64>(Immediate::VT_NUM, num, 0);
-  }
-  #[inline]
-  pub fn add_blob(&mut self, blob: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Immediate::VT_BLOB, blob);
-  }
-  #[inline]
-  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ImmediateBuilder<'a, 'b> {
-    let start = _fbb.start_table();
-    ImmediateBuilder {
-      fbb_: _fbb,
-      start_: start,
-    }
-  }
-  #[inline]
-  pub fn finish(self) -> flatbuffers::WIPOffset<Immediate<'a>> {
-    let o = self.fbb_.end_table(self.start_);
-    flatbuffers::WIPOffset::new(o.value())
-  }
-}
-
 pub enum TableReferenceOffset {}
 #[derive(Copy, Clone, Debug, PartialEq)]
 
@@ -1647,6 +1548,119 @@ impl<'a: 'b, 'b> TableSchemaBuilder<'a, 'b> {
     let o = self.fbb_.end_table(self.start_);
     self.fbb_.required(o, TableSchema::VT_NAME,"name");
     self.fbb_.required(o, TableSchema::VT_FIELDS,"fields");
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+pub enum ImmediateOffset {}
+#[derive(Copy, Clone, Debug, PartialEq)]
+
+pub struct Immediate<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for Immediate<'a> {
+    type Inner = Immediate<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf: buf, loc: loc },
+        }
+    }
+}
+
+impl<'a> Immediate<'a> {
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        Immediate {
+            _tab: table,
+        }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args ImmediateArgs<'args>) -> flatbuffers::WIPOffset<Immediate<'bldr>> {
+      let mut builder = ImmediateBuilder::new(_fbb);
+      builder.add_num(args.num);
+      if let Some(x) = args.blob { builder.add_blob(x); }
+      builder.add_type_(args.type_);
+      builder.finish()
+    }
+
+    #[allow(unused_mut)]
+    pub fn write_to<'wr_to>(&self,
+          _fbb: &mut flatbuffers::FlatBufferBuilder<'wr_to>) -> flatbuffers::WIPOffset<Immediate<'wr_to>> {
+      let num = self.num();
+      let blob =  { match self.blob() { Some(u) => Some(_fbb.create_vector_direct(u)), _ => None } };
+      let type_ = self.type_();
+      let mut builder = ImmediateBuilder::new(_fbb);
+      builder.add_num(num);
+      if let Some(u) = blob { builder.add_blob(u); } 
+      builder.add_type_(type_);
+      builder.finish()
+    }
+
+    pub const VT_TYPE_: flatbuffers::VOffsetT = 4;
+    pub const VT_BLOB: flatbuffers::VOffsetT = 6;
+    pub const VT_NUM: flatbuffers::VOffsetT = 8;
+
+  #[inline]
+  pub fn type_(&self) -> FieldType {
+    self._tab.get::<FieldType>(Immediate::VT_TYPE_, Some(FieldType::Blob)).unwrap()
+  }
+  #[inline]
+  pub fn blob(&self) -> Option<&'a [u8]> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u8>>>(Immediate::VT_BLOB, None).map(|v| v.safe_slice())
+  }
+  #[inline]
+  pub fn num(&self) -> u64 {
+    self._tab.get::<u64>(Immediate::VT_NUM, Some(0)).unwrap()
+  }
+}
+
+pub struct ImmediateArgs<'a> {
+    pub type_: FieldType,
+    pub blob: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a ,  u8>>>,
+    pub num: u64,
+}
+impl<'a> Default for ImmediateArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        ImmediateArgs {
+            type_: FieldType::Blob,
+            blob: None,
+            num: 0,
+        }
+    }
+}
+pub struct ImmediateBuilder<'a: 'b, 'b> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> ImmediateBuilder<'a, 'b> {
+  #[inline]
+  pub fn add_type_(&mut self, type_: FieldType) {
+    self.fbb_.push_slot::<FieldType>(Immediate::VT_TYPE_, type_, FieldType::Blob);
+  }
+  #[inline]
+  pub fn add_blob(&mut self, blob: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Immediate::VT_BLOB, blob);
+  }
+  #[inline]
+  pub fn add_num(&mut self, num: u64) {
+    self.fbb_.push_slot::<u64>(Immediate::VT_NUM, num, 0);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ImmediateBuilder<'a, 'b> {
+    let start = _fbb.start_table();
+    ImmediateBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<Immediate<'a>> {
+    let o = self.fbb_.end_table(self.start_);
     flatbuffers::WIPOffset::new(o.value())
   }
 }
@@ -1995,51 +2009,41 @@ impl<'a> Row<'a> {
       let mut builder = RowBuilder::new(_fbb);
       if let Some(x) = args.data { builder.add_data(x); }
       builder.add_len(args.len);
-      builder.add_crc(args.crc);
       builder.finish()
     }
 
     #[allow(unused_mut)]
     pub fn write_to<'wr_to>(&self,
           _fbb: &mut flatbuffers::FlatBufferBuilder<'wr_to>) -> flatbuffers::WIPOffset<Row<'wr_to>> {
-      let data = _fbb.create_vector_direct(self.data());
+      let data = { let mut tmp = vec!(); for x in self.data() { tmp.push(x.write_to(_fbb)) }  let tmp_len = tmp.len();  _fbb.start_vector::<flatbuffers::WIPOffset<Row>>(tmp_len);    for x in tmp { _fbb.push(x); }  _fbb.end_vector(tmp_len)};
       let len = self.len();
-      let crc = self.crc();
       let mut builder = RowBuilder::new(_fbb);
       builder.add_data(data);
       builder.add_len(len);
-      builder.add_crc(crc);
       builder.finish()
     }
 
-    pub const VT_CRC: flatbuffers::VOffsetT = 4;
-    pub const VT_LEN: flatbuffers::VOffsetT = 6;
-    pub const VT_DATA: flatbuffers::VOffsetT = 8;
+    pub const VT_LEN: flatbuffers::VOffsetT = 4;
+    pub const VT_DATA: flatbuffers::VOffsetT = 6;
 
-  #[inline]
-  pub fn crc(&self) -> u16 {
-    self._tab.get::<u16>(Row::VT_CRC, Some(0)).unwrap()
-  }
   #[inline]
   pub fn len(&self) -> u16 {
     self._tab.get::<u16>(Row::VT_LEN, Some(0)).unwrap()
   }
   #[inline]
-  pub fn data(&self) -> &'a [u8] {
-    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u8>>>(Row::VT_DATA, None).map(|v| v.safe_slice()).unwrap()
+  pub fn data(&self) -> flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Immediate<'a>>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Immediate<'a>>>>>(Row::VT_DATA, None).unwrap()
   }
 }
 
 pub struct RowArgs<'a> {
-    pub crc: u16,
     pub len: u16,
-    pub data: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a ,  u8>>>,
+    pub data: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Immediate<'a >>>>>,
 }
 impl<'a> Default for RowArgs<'a> {
     #[inline]
     fn default() -> Self {
         RowArgs {
-            crc: 0,
             len: 0,
             data: None, // required field
         }
@@ -2051,15 +2055,11 @@ pub struct RowBuilder<'a: 'b, 'b> {
 }
 impl<'a: 'b, 'b> RowBuilder<'a, 'b> {
   #[inline]
-  pub fn add_crc(&mut self, crc: u16) {
-    self.fbb_.push_slot::<u16>(Row::VT_CRC, crc, 0);
-  }
-  #[inline]
   pub fn add_len(&mut self, len: u16) {
     self.fbb_.push_slot::<u16>(Row::VT_LEN, len, 0);
   }
   #[inline]
-  pub fn add_data(&mut self, data: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
+  pub fn add_data(&mut self, data: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Immediate<'b >>>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Row::VT_DATA, data);
   }
   #[inline]

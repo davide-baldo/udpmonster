@@ -65,11 +65,6 @@ table Filter {
   right_value : FilterValue;
 }
 
-table Immediate {
-  num  :  uint64;
-  blob : [uint8];
-}
-
 table TableReference {
   table_id : uint16;
   field_id : uint8;
@@ -92,6 +87,12 @@ enum FieldType : uint8 {
   UInt64 = 1,
 }
 
+table Immediate {
+  type : FieldType;
+  blob : [uint8];
+  num  :  uint64;
+}
+
 table FieldDescription {
   id   : uint8;
   name : string (required);
@@ -112,7 +113,7 @@ table InsertCommand {
 
 table Row {
   len  : uint16; /* should be implicit, remove? */
-  data : [uint8] (required);
+  data : [Immediate] (required);
 }
 
 /* Delete Command */
