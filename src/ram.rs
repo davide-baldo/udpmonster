@@ -9,6 +9,7 @@ use easybench::{bench, bench_env};
 use byteorder::{LittleEndian, ByteOrder};
 use std::borrow::{BorrowMut, Borrow};
 use std::ptr::write_bytes;
+use flatbuffers::{WIPOffset, FlatBufferBuilder, Vector};
 
 ///
 /// data is an infinite array representing data, at the beginning of each
@@ -17,9 +18,6 @@ use std::ptr::write_bytes;
 /// index is split in 64 bytes memory blocks (size of the cache line)
 ///   - 64 bit representing the absolute memory address
 ///   - 24 bit representing the relative memory address (64-8)/3 = 18 entries 2 wasted bytes
-/// OR- 16 bit representing the size of entry (64-8)/2 = 28 entries 0 wasted bytes
-///     but you must sum up to 28 integers to retrieve the pointer
-/// having ~ 3.5 byte overhead per entry
 ///
 /// for this reason it is crucial for the index to aligned to memory page 4096
 /// each entry access should only have 1 cache line access regardless you are looking for
@@ -41,6 +39,8 @@ struct ColumnDataBlob {
   deleted_memory: u64,
   is_initializing_data_block: AtomicBool
 }
+
+unsafe impl Sync for ColumnDataBlob { }
 
 const ENTRY_PER_BLOB_BLOCK: u32 = 18;
 
@@ -143,7 +143,7 @@ impl ColumnDataBlob {
 
       if next_index_to_initialize > index {
         if result == false {
-          self.is_initializing_data_block.store(false, Ordering::Relaxed)
+          self.is_initializing_data_block.store(false, Ordering::SeqCst)
         }
         return;
       }
@@ -200,7 +200,7 @@ impl ColumnDataBlob {
       );
     }
 
-    //TODO: insert memory barrier here
+    //TODO: insert memory barrier here?
     //to avoid index pointing toward an non-initialed space
 
     assert!(abs_data_offset >= abs_data_block_begin);
@@ -222,6 +222,8 @@ struct RamColumn {
   blob_data: Option<Cell<ColumnDataBlob>>
 }
 
+unsafe impl Sync for RamColumn {}
+
 impl RamColumn {
   fn insert(&self, index: u32, immediate: &Immediate) -> u32 {
     self.blob_data().insert(index, immediate)
@@ -231,7 +233,6 @@ impl RamColumn {
     unsafe { &mut *self.blob_data.as_ref().unwrap().as_ptr() }
   }
 
-  
   fn get_blob(&self, index: u32) -> Option<&[u8]> {
     self.blob_data().get(index)
   }
@@ -283,6 +284,11 @@ impl<'ram_table> Table<'ram_table> for RamTable<'ram_table> {
       column_index += 1;
     }
   }
+
+  fn copy_row<'a>(&self, index: u32, builder: &FlatBufferBuilder<'a>) ->
+      Option<WIPOffset<Vector<'a, Immediate<'a>>>> {
+    unimplemented!()
+  }
 }
 
 impl<'a> Display for RamTable<'a> {
@@ -302,6 +308,8 @@ mod tests {
   use std::sync::atomic::{AtomicU32, Ordering};
   use std::thread;
   use std::sync::Arc;
+  use std::thread::JoinHandle;
+  use std::time::Instant;
 
   fn build_immediate_string<'a>(builder: &'a mut FlatBufferBuilder, string: &str) -> Immediate<'a> {
     let string_offset = builder.create_vector(
@@ -462,40 +470,60 @@ mod tests {
 
   #[test]
   fn multi_thread_insert_and_get() {
-    let mut builder_immediate = flatbuffers::FlatBufferBuilder::new_with_capacity(
-      2048
-    );
-    let immediate = build_immediate_string(
-      &mut builder_immediate,
-      "hello",
-    );
-
     let column = Arc::new(create_column());
+    let mut threads : Vec<JoinHandle<bool>> = Vec::new();
+    let now = Instant::now();
 
-    let write_index = AtomicU32::new(0);
-    for _ in 0..10 {
+    const NUMBER_OF_ROWS : u32 = 4000000;
+
+    let write_index = Arc::new(AtomicU32::new(0));
+    for _ in 0..4 {
       let column = column.clone();
+      let write_index = write_index.clone();
       let result = thread::spawn(move || {
-        let index = write_index.fetch_add(1, Ordering::SeqCst);
-        column.insert(index, &immediate);
-        if index >= 4000 {
-          return
+        let mut builder_immediate = flatbuffers::FlatBufferBuilder::new_with_capacity(
+          2048
+        );
+        let immediate = build_immediate_string(
+          &mut builder_immediate,
+          "hello!",
+        );
+        loop {
+          let index = write_index.fetch_add(1, Ordering::SeqCst);
+          column.insert(index, &immediate);
+          if index >= NUMBER_OF_ROWS {
+            return true;
+          }
         }
       });
+      threads.push(result);
     }
 
-    let read_index = AtomicU32::new(4000);
-    for _ in 0..10 {
-      let result = thread::spawn(|| {
-        let index = write_index.fetch_sub(1, Ordering::SeqCst);
-        if index < 0 {
-          return;
-        }
-        if let Some(x) = column.get_blob(index) {
-          assert_eq!(x, "hello!".as_bytes())
+    let read_index = Arc::new(AtomicU32::new(0));
+    for _ in 0..50 {
+      let column = column.clone();
+      let read_index = read_index.clone();
+      let result = thread::spawn( move || {
+        loop {
+          let index = read_index.fetch_add(1, Ordering::SeqCst);
+          if index >= NUMBER_OF_ROWS {
+            return true;
+          }
+          if let Some(x) = column.get_blob(NUMBER_OF_ROWS - index) {
+            assert_eq!(x, "hello!".as_bytes())
+          }
         }
       });
+      threads.push(result);
     }
+
+    for thread in threads {
+      let join = thread.join();
+      assert_eq!(join.is_err(), false);
+      assert_eq!(join.is_ok(), true)
+    }
+
+    print!("\nMilliseconds: {}\n", now.elapsed().as_millis());
   }
 
   fn create_column() -> RamColumn {

@@ -10,9 +10,11 @@ use std::marker::PhantomData;
 use std::borrow::BorrowMut;
 use std::ops::Deref;
 use std::cell::UnsafeCell;
+use flatbuffers::{FlatBufferBuilder, Vector, WIPOffset};
 
 pub trait Table<'table>: Display + Sync {
   fn insert(&self,row: &crate::flat::Row );
+  fn copy_row<'a>(&self, index: u32, builder: &FlatBufferBuilder<'a>) -> Option<WIPOffset<Vector<'a, Immediate<'a>>>>;
 }
 
 pub struct TableSchemaEx<'ex> {

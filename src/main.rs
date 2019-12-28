@@ -19,7 +19,7 @@ mod udpmonster {
   use std::time::Duration;
 
   pub fn start() {
-    udp::start_listening();
+    udp::start_listening(10);
 
     loop {
       sleep(Duration::new(10,0))

@@ -568,6 +568,119 @@ impl<'a: 'b, 'b> EmptyCommandResponseBuilder<'a, 'b> {
   }
 }
 
+pub enum QueryRowResponseOffset {}
+#[derive(Copy, Clone, Debug, PartialEq)]
+
+pub struct QueryRowResponse<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for QueryRowResponse<'a> {
+    type Inner = QueryRowResponse<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf: buf, loc: loc },
+        }
+    }
+}
+
+impl<'a> QueryRowResponse<'a> {
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        QueryRowResponse {
+            _tab: table,
+        }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args QueryRowResponseArgs<'args>) -> flatbuffers::WIPOffset<QueryRowResponse<'bldr>> {
+      let mut builder = QueryRowResponseBuilder::new(_fbb);
+      if let Some(x) = args.rows { builder.add_rows(x); }
+      builder.add_index(args.index);
+      builder.add_last(args.last);
+      builder.finish()
+    }
+
+    #[allow(unused_mut)]
+    pub fn write_to<'wr_to>(&self,
+          _fbb: &mut flatbuffers::FlatBufferBuilder<'wr_to>) -> flatbuffers::WIPOffset<QueryRowResponse<'wr_to>> {
+      let rows =  { match self.rows() { Some(u) => Some({ let mut tmp = vec!(); for x in u { tmp.push(x.write_to(_fbb)) }  let tmp_len = tmp.len();  _fbb.start_vector::<flatbuffers::WIPOffset<QueryRowResponse>>(tmp_len);    for x in tmp { _fbb.push(x); }  _fbb.end_vector(tmp_len)}), _ => None } };
+      let index = self.index();
+      let last = self.last();
+      let mut builder = QueryRowResponseBuilder::new(_fbb);
+      if let Some(u) = rows { builder.add_rows(u); } 
+      builder.add_index(index);
+      builder.add_last(last);
+      builder.finish()
+    }
+
+    pub const VT_INDEX: flatbuffers::VOffsetT = 4;
+    pub const VT_ROWS: flatbuffers::VOffsetT = 6;
+    pub const VT_LAST: flatbuffers::VOffsetT = 8;
+
+  #[inline]
+  pub fn index(&self) -> u32 {
+    self._tab.get::<u32>(QueryRowResponse::VT_INDEX, Some(0)).unwrap()
+  }
+  #[inline]
+  pub fn rows(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Row<'a>>>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Row<'a>>>>>(QueryRowResponse::VT_ROWS, None)
+  }
+  #[inline]
+  pub fn last(&self) -> bool {
+    self._tab.get::<bool>(QueryRowResponse::VT_LAST, Some(false)).unwrap()
+  }
+}
+
+pub struct QueryRowResponseArgs<'a> {
+    pub index: u32,
+    pub rows: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Row<'a >>>>>,
+    pub last: bool,
+}
+impl<'a> Default for QueryRowResponseArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        QueryRowResponseArgs {
+            index: 0,
+            rows: None,
+            last: false,
+        }
+    }
+}
+pub struct QueryRowResponseBuilder<'a: 'b, 'b> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> QueryRowResponseBuilder<'a, 'b> {
+  #[inline]
+  pub fn add_index(&mut self, index: u32) {
+    self.fbb_.push_slot::<u32>(QueryRowResponse::VT_INDEX, index, 0);
+  }
+  #[inline]
+  pub fn add_rows(&mut self, rows: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Row<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(QueryRowResponse::VT_ROWS, rows);
+  }
+  #[inline]
+  pub fn add_last(&mut self, last: bool) {
+    self.fbb_.push_slot::<bool>(QueryRowResponse::VT_LAST, last, false);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> QueryRowResponseBuilder<'a, 'b> {
+    let start = _fbb.start_table();
+    QueryRowResponseBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<QueryRowResponse<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
 pub enum PacketOffset {}
 #[derive(Copy, Clone, Debug, PartialEq)]
 
@@ -908,9 +1021,9 @@ impl<'a> ResponsePacket<'a> {
 
   #[inline]
   #[allow(non_snake_case)]
-  pub fn response_as_query(&self) -> Option<EmptyCommandResponse<'a>> {
+  pub fn response_as_query(&self) -> Option<QueryRowResponse<'a>> {
     if self.response_type() == CommandResponse::Query {
-      Some(EmptyCommandResponse::init_from_table( self.response()))
+      Some(QueryRowResponse::init_from_table( self.response()))
     } else {
       None
     }
@@ -942,7 +1055,7 @@ impl<'a> ResponsePacket<'a> {
       return Some(EmptyCommandResponse::init_from_table(self.response()).write_to(_fbb).as_union_value());
     }
     if self.response_type() == CommandResponse::Query {
-      return Some(EmptyCommandResponse::init_from_table(self.response()).write_to(_fbb).as_union_value());
+      return Some(QueryRowResponse::init_from_table(self.response()).write_to(_fbb).as_union_value());
     }
     if self.response_type() == CommandResponse::Update {
       return Some(EmptyCommandResponse::init_from_table(self.response()).write_to(_fbb).as_union_value());

@@ -11,25 +11,31 @@ union Command {
 table EmptyCommandResponse {
 }
 
+table QueryRowResponse {
+  index : uint32;
+  rows  : [Row];
+  last  : bool;
+}
+
 union CommandResponse {
   Create  : EmptyCommandResponse,
   Drop    : EmptyCommandResponse,
   Insert  : EmptyCommandResponse,
   Delete  : EmptyCommandResponse,
-  Query   : EmptyCommandResponse,
+  Query   : QueryRowResponse,
   Update  : EmptyCommandResponse,
 }
 
 table Packet {
-  crc     : uint32;
-  version : uint16;
-  timeout : uint16;
-  command : Command (required);
+  version    : uint16;
+  request_id : uint64;
+  timeout    : uint16;
+  command    : Command (required);
 }
 
 table ResponsePacket {
-  crc      : uint32;
-  version  : uint16; 
+  version  : uint16;
+  request_id : uint64;
   response : CommandResponse (required);
 }
 
