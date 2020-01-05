@@ -4,13 +4,21 @@ version = "0.1.0"
 authors = ["Davide Baldo <davide@baldo.me>"]
 edition = "2018"
 
+[[bin]]
+name = "udpmonster"
+path = "src/main.rs"
+
+[[bin]]
+name = "udpmonster-ram-stress"
+path = "src/ram-stress.rs"
+
 [profile.release]
-opt-level = 3
-debug = false
+opt-level = 's'
+debug = true
 rpath = false
-lto = false
+lto = true
 debug-assertions = false
-codegen-units = 16
+codegen-units = 1
 panic = 'unwind'
 incremental = false
 overflow-checks = false
@@ -21,8 +29,7 @@ debug = false
 rpath = false
 lto = false
 debug-assertions = false
-codegen-units = 16
-panic = 'unwind'
+codegen-units = 1
 incremental = false
 overflow-checks = false
 

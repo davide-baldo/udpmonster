@@ -1,18 +1,14 @@
-use std::task::{Context, Poll};
-use std::pin::Pin;
-use std::net::{UdpSocket, SocketAddrV4, Ipv4Addr};
-use std::io::Error;
+use std::net::{UdpSocket, SocketAddrV4};
 use std::thread;
-use crate::flat::{Packet, get_root_as_packet, PacketArgs, Command, FieldDescription, TableSchemaArgs, CreateCommandArgs, FieldDescriptionArgs, InsertCommandArgs, ResponsePacket, CommandResponse, Row, RowArgs, Immediate, ImmediateArgs, FieldType};
+use crate::flat::{get_root_as_packet, PacketArgs, Command, FieldDescription, TableSchemaArgs, CreateCommandArgs, FieldDescriptionArgs, InsertCommandArgs, Row, RowArgs, Immediate, ImmediateArgs, FieldType, QueryCommandArgs, Sort, CommandResponse, ResponsePacket};
 use crate::{commands, flat};
 use flatbuffers::{read_scalar, FlatBufferBuilder, WIPOffset};
 use std::sync::{Arc, Mutex};
-use std::borrow::BorrowMut;
 use crate::store::Store;
-use std::str::FromStr;
 use crate::flat::FieldType::Blob;
 use std::time::Duration;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::str::FromStr;
 
 pub fn start_listening(threads: u16) -> Arc<AtomicBool> {
   let store = Arc::new(Mutex::new(Store::create()));
@@ -93,10 +89,10 @@ fn build_create_table(builder: &mut flatbuffers::FlatBufferBuilder) {
     flat::FieldDescription::create(
       builder,
       &FieldDescriptionArgs {
-        id: 0x01,
-        name: from,
+        id: 0x03,
+        name: message,
         type_: Blob,
-        size_: 32,
+        size_: 4096,
       },
     ),
     flat::FieldDescription::create(
@@ -111,12 +107,12 @@ fn build_create_table(builder: &mut flatbuffers::FlatBufferBuilder) {
     flat::FieldDescription::create(
       builder,
       &FieldDescriptionArgs {
-        id: 0x03,
-        name: message,
+        id: 0x01,
+        name: from,
         type_: Blob,
-        size_: 4096,
+        size_: 32,
       },
-    )
+    ),
   ];
 
   let fields_vector = Option::Some(
@@ -232,8 +228,37 @@ fn build_insert_rows(builder: &mut flatbuffers::FlatBufferBuilder) {
   builder.finish_minimal(packet);
 }
 
+
+fn build_simple_query(builder: &mut flatbuffers::FlatBufferBuilder) {
+  builder.reset();
+
+  let command = flat::QueryCommand::create(
+    builder,
+    &QueryCommandArgs {
+      table_id: 1,
+      max_results: 3,
+      sort: Sort::None,
+      sort_field: 0,
+      filter: None
+    },
+  );
+
+  let packet = flat::Packet::create(
+    builder,
+    &PacketArgs {
+      crc: 0,
+      version: 1,
+      timeout: 1000,
+      command_type: Command::Query,
+      command: Some(command.as_union_value()),
+    },
+  );
+
+  builder.finish_minimal(packet);
+}
+
 #[test]
-fn create_table_insert_query() {
+fn create_insert_query() {
   let stopped = start_listening_for_test();
   let mut in_buffer: [u8; 64*1024] = [0; 64*1024];
 
@@ -244,7 +269,7 @@ fn create_table_insert_query() {
   let address = SocketAddrV4::from_str("127.0.0.1:8460").unwrap();
   let socket = UdpSocket::bind("0.0.0.0:0" ).unwrap();
 
-  socket.set_read_timeout(Option::from(Duration::from_millis(500)));
+ // socket.set_read_timeout(Option::from(Duration::from_millis(500)));
   socket.set_write_timeout(Option::from(Duration::from_millis(500)));
 
   {
@@ -268,7 +293,6 @@ fn create_table_insert_query() {
 
   {
     //insert few rows
-    builder.reset();
     build_insert_rows(&mut builder);
     assert_eq!(
       socket.send_to(builder.finished_data(), address).unwrap(),
@@ -283,9 +307,44 @@ fn create_table_insert_query() {
     );
   }
 
-  //query...
   {
+    //query 3 lines without filters
+    build_simple_query(&mut builder);
+    assert_eq!(
+      socket.send_to(builder.finished_data(), address).unwrap(),
+      builder.finished_data().len()
+    );
 
+    let size = socket.recv(&mut in_buffer).unwrap();
+    let response = flatbuffers::get_root::<ResponsePacket>(&in_buffer[0..size]);
+    assert_eq!(
+      response.response_type(),
+      CommandResponse::Query
+    );
+
+    let query = response.response_as_query().unwrap();
+    assert_eq!(query.rows().unwrap().len(), 1);
+
+    let row = query.rows().unwrap().get(0);
+    assert_eq!(row.data().len(), 3);
+
+    let from = row.data().get(0);
+    assert_eq!(
+      String::from_utf8(from.blob().unwrap().into()).unwrap(),
+      "user1"
+    );
+
+    let to = row.data().get(1);
+    assert_eq!(
+      String::from_utf8(to.blob().unwrap().into()).unwrap(),
+      "user2"
+    );
+
+    let message = row.data().get(2);
+    assert_eq!(
+      String::from_utf8(message.blob().unwrap().into()).unwrap(),
+      "message"
+    );
   }
 
   stopped.store(true, Ordering::SeqCst);

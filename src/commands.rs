@@ -1,10 +1,8 @@
-use crate::flat::{Packet, Command, QueryCommand, ResponsePacket, ResponsePacketArgs, QueryRowResponse, CommandResponse, QueryRowResponseArgs, Immediate, EmptyCommandResponse, EmptyCommandResponseArgs};
+use crate::flat::{Packet, Command, QueryCommand, ResponsePacket, ResponsePacketArgs, QueryRowResponse, CommandResponse, QueryRowResponseArgs, EmptyCommandResponse, EmptyCommandResponseArgs};
 use crate::store::{Store, Table};
 use std::sync::{Arc, Mutex};
 use std::net::{UdpSocket, SocketAddr};
-use std::borrow::BorrowMut;
-use std::process::exit;
-use flatbuffers::{FlatBufferBuilder, WIPOffset, Vector};
+use flatbuffers::{FlatBufferBuilder};
 
 fn build_insert_response(builder: &mut FlatBufferBuilder) {
   builder.reset();
@@ -86,20 +84,19 @@ pub fn exec(
       let query = packet.command_as_query().unwrap();
 
       if let Some(table) = store.lock().unwrap().get_table(query.table_id()) {
+        builder.reset();
         let mut iterator = RowIterator::new(&table, &query);
 
         while iterator.has_next() {
           let index = iterator.next();
 
           if let Some(row) = table.copy_row(index, builder) {
-            let response: flatbuffers::WIPOffset<flatbuffers::UnionWIPOffset>;
-            builder.start_vector::<flatbuffers::WIPOffset<Vector<Immediate>>>(1);
-            builder.push::<flatbuffers::WIPOffset<Vector<Immediate>>>(row);
-            let rows = builder.end_vector(1);
+            let response;
+            let rows = builder.create_vector(&[row]);
             response = QueryRowResponse::create(builder, &QueryRowResponseArgs{
               index: index,
               rows: Some(rows),
-              last: iterator.has_next()
+              last: !iterator.has_next()
             }).as_union_value();
 
             send_row_packet(socket, address, builder, response);
@@ -131,16 +128,8 @@ pub fn exec(
     socket.send_to(builder.finished_data(), address).expect("send_to failed");
   }
 
-  fn write_if_match<'a>(
-    table : &Arc<dyn Table>,
-    index: u32, query: &QueryCommand,
-    builder: &'a mut FlatBufferBuilder
-  ) -> Option<WIPOffset<Vector<'a, Immediate<'a>>>> {
-    table.copy_row(index, builder)
-  }
-
   struct RowIterator<'a> {
-    index : u32,
+    index: u32,
     table: Arc<dyn Table<'a>>
   }
 
@@ -157,8 +146,9 @@ pub fn exec(
     }
 
     pub fn next(&mut self) -> u32 {
+      let current = self.index;
       self.index += 1;
-      return self.index;
+      current
     }
   }
 }

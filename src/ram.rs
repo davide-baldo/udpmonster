@@ -1,15 +1,13 @@
-use crate::flat::{Immediate, Row, TableSchema, FieldDescription};
+use crate::flat::{Immediate, Row, TableSchema, FieldDescription, ImmediateArgs, FieldType, RowArgs};
 use crate::store::{Table, TableSchemaEx};
-use crate::utils::create_memory_mapping;
+use crate::utils::{create_memory_mapping, create_column};
 use std::fmt::{Display, Formatter};
-use std::io::{Error, Read};
-use std::sync::atomic::{AtomicUsize, Ordering, AtomicIsize, AtomicU32, AtomicBool};
+use std::sync::atomic::{AtomicUsize, Ordering, AtomicU32, AtomicBool};
 use std::cell::{UnsafeCell, Cell};
-use easybench::{bench, bench_env};
 use byteorder::{LittleEndian, ByteOrder};
-use std::borrow::{BorrowMut, Borrow};
 use std::ptr::write_bytes;
 use flatbuffers::{WIPOffset, FlatBufferBuilder, Vector};
+use std::thread;
 
 ///
 /// data is an infinite array representing data, at the beginning of each
@@ -56,6 +54,11 @@ impl ColumnDataBlob {
     }
   }
 
+  fn size(&self) -> usize {
+    self.next_data_position.load(Ordering::Relaxed)
+  }
+
+  #[inline]
   fn get(&self, index: u32) -> Option<&[u8]> {
     if index >= self.next_index_to_initialize.load(Ordering::Relaxed) {
       return None
@@ -81,7 +84,7 @@ impl ColumnDataBlob {
       &self.index[index_block_offset..index_block_offset + 8]
     ) as usize;
 
-    let index_offset = ColumnDataBlob::calc_index_offset(index);
+    let (_,index_offset) = ColumnDataBlob::calc_index_offset(index);
     let data_block_offset = LittleEndian::read_u24(
       &self.index[index_offset..index_offset + 3]
     );
@@ -92,7 +95,7 @@ impl ColumnDataBlob {
   #[inline]
   fn allocate_data(&mut self, size: usize) -> usize {
     loop {
-      let current = self.next_data_position.load(Ordering::SeqCst);
+      let current = self.next_data_position.load(Ordering::Relaxed);
 
       let next_data_index = self.next_data_position.compare_and_swap(
         current,
@@ -111,9 +114,10 @@ impl ColumnDataBlob {
   /// which contain the data address
   ///
   #[inline]
-  fn calc_index_offset(index: u32) -> usize {
-    (index as usize / 18) * 64 + //numbers of blocks
-      3 * (index % 18) as usize + 8 //relative to the single block
+  fn calc_index_offset(index: u32) -> (usize,usize) {
+    let blocks_num = (index as usize / 18) * 64; //numbers of blocks
+    let relative_index =  3 * (index % 18) as usize + 8; //relative to the single block
+    (blocks_num, blocks_num+relative_index)
   }
 
   #[inline]
@@ -134,22 +138,22 @@ impl ColumnDataBlob {
     loop {
       let result = self.is_initializing_data_block.compare_and_swap(
         false, true,
-        Ordering::SeqCst
+        Ordering::Relaxed
       );
 
       let next_index_to_initialize = self.next_index_to_initialize.load(
-        Ordering::SeqCst
+        Ordering::Relaxed
       );
 
       if next_index_to_initialize > index {
         if result == false {
-          self.is_initializing_data_block.store(false, Ordering::SeqCst)
+          self.is_initializing_data_block.store(false, Ordering::Relaxed)
         }
         return;
       }
 
       if result == false {
-        let abs_data_offset = self.next_data_position.load(Ordering::SeqCst);
+        let abs_data_offset = self.next_data_position.load(Ordering::Relaxed);
         let block_begin_offset = ColumnDataBlob::calc_index_block_begin_offset(index);
         unsafe { write_bytes(&mut self.index[block_begin_offset], 0xFF, 64); }
         LittleEndian::write_u64(
@@ -160,6 +164,8 @@ impl ColumnDataBlob {
         self.is_initializing_data_block.store(false, Ordering::Relaxed);
         return;
       }
+
+      thread::yield_now();
     }
   }
 
@@ -173,15 +179,15 @@ impl ColumnDataBlob {
       blob_len + 2
     );
 
-    let abs_data_block_begin: usize;
-    let abs_index_offset = ColumnDataBlob::calc_index_offset(index);
+    let (block_begin_offset,abs_index_offset) = ColumnDataBlob::calc_index_offset(
+      index
+    );
+    let abs_data_block_begin = LittleEndian::read_u64(
+      &mut self.index[block_begin_offset..block_begin_offset + 8],
+    ) as usize;
 
-    {
-      let block_begin_offset = ColumnDataBlob::calc_index_block_begin_offset(index);
-      abs_data_block_begin = LittleEndian::read_u64(
-        &mut self.index[block_begin_offset..block_begin_offset + 8],
-      ) as usize;
-    }
+    assert!(abs_data_offset >= abs_data_block_begin);
+    assert!(abs_data_offset - abs_data_block_begin < 16*1024*1024);
 
     //write the length of blob in data
     LittleEndian::write_u16(
@@ -203,9 +209,6 @@ impl ColumnDataBlob {
     //TODO: insert memory barrier here?
     //to avoid index pointing toward an non-initialed space
 
-    assert!(abs_data_offset >= abs_data_block_begin);
-    assert!(abs_data_offset - abs_data_block_begin < 0x1000000);
-
     LittleEndian::write_u24(
       &mut self.index[abs_index_offset as usize..abs_index_offset + 3],
       (abs_data_offset - abs_data_block_begin) as u32,
@@ -215,7 +218,7 @@ impl ColumnDataBlob {
   }
 }
 
-struct RamColumn {
+pub struct RamColumn {
   id: u8,
   type_: crate::flat::FieldType,
   size: u16,
@@ -225,19 +228,26 @@ struct RamColumn {
 unsafe impl Sync for RamColumn {}
 
 impl RamColumn {
-  fn insert(&self, index: u32, immediate: &Immediate) -> u32 {
+  #[inline]
+  pub fn insert(&self, index: u32, immediate: &Immediate) -> u32 {
     self.blob_data().insert(index, immediate)
   }
 
-  fn blob_data(&self) -> &mut ColumnDataBlob {
+  pub fn size(&self) -> usize {
+    self.blob_data().size()
+  }
+
+  #[inline]
+  pub fn blob_data(&self) -> &mut ColumnDataBlob {
     unsafe { &mut *self.blob_data.as_ref().unwrap().as_ptr() }
   }
 
-  fn get_blob(&self, index: u32) -> Option<&[u8]> {
+  #[inline]
+  pub fn get_blob(&self, index: u32) -> Option<&[u8]> {
     self.blob_data().get(index)
   }
 
-  fn create(field: &FieldDescription) -> Self {
+  pub fn create(field: &FieldDescription) -> Self {
     RamColumn {
       id: field.id(),
       type_: field.type_(),
@@ -264,6 +274,7 @@ impl RamTable<'_> {
     table
   }
 
+  #[inline]
   fn columns(&self) -> &mut Vec<RamColumn> {
     unsafe {
       &mut *self.columns.get()
@@ -285,9 +296,40 @@ impl<'ram_table> Table<'ram_table> for RamTable<'ram_table> {
     }
   }
 
-  fn copy_row<'a>(&self, index: u32, builder: &FlatBufferBuilder<'a>) ->
-      Option<WIPOffset<Vector<'a, Immediate<'a>>>> {
-    unimplemented!()
+  fn copy_row<'a>(&self, index: u32, builder: &mut FlatBufferBuilder<'a>) ->
+    Option<flatbuffers::WIPOffset<Row<'a>>> {
+
+    let num_items = self.columns().len();
+    let mut column_list: Vec<WIPOffset<Immediate>> = Vec::new();
+
+    for i in (0..self.columns().len()).rev() {
+      let column = self.columns().get(i).unwrap();
+      let blob: Option<WIPOffset<Vector<u8>>>;
+
+      if let Some(value) = column.get_blob(index) {
+        blob = Some(builder.create_vector_direct(value));
+      } else {
+        blob = None;
+      }
+
+      let immediate = Immediate::create(
+        builder,
+        &ImmediateArgs {
+          type_: FieldType::Blob,
+          blob: blob,
+          num: 0
+        }
+      );
+      column_list.push( immediate );
+    }
+
+    let data = Some(builder.create_vector(column_list.as_slice()));
+    let row = Row::create(builder, &RowArgs{
+      len: 0,
+      data: data
+    });
+
+    Some(row)
   }
 }
 
@@ -298,7 +340,8 @@ impl<'a> Display for RamTable<'a> {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
+  use crate::utils::{create_memory_mapping, create_column, build_schema, build_immediate_string};
   use crate::ram::RamColumn;
   use crate::flat::{FieldDescription, FieldDescriptionArgs, TableSchemaArgs, CreateCommandArgs, PacketArgs, Command, get_root_as_packet, TableSchema, ImmediateArgs, ImmediateBuilder, Immediate, FieldType};
   use crate::flat;
@@ -310,103 +353,6 @@ mod tests {
   use std::sync::Arc;
   use std::thread::JoinHandle;
   use std::time::Instant;
-
-  fn build_immediate_string<'a>(builder: &'a mut FlatBufferBuilder, string: &str) -> Immediate<'a> {
-    let string_offset = builder.create_vector(
-      string.as_bytes()
-    );
-
-    let root = Immediate::create(
-      builder,
-      &ImmediateArgs {
-        type_: FieldType::Blob,
-        blob: Some(string_offset),
-        num: 0,
-      },
-    );
-
-    builder.finish_minimal(root);
-    flatbuffers::get_root::<Immediate>(&*builder.finished_data())
-  }
-
-  fn build_schema<'a>(builder: &'a mut FlatBufferBuilder) -> TableSchema<'a> {
-    build_create_table(builder);
-    let data = builder.finished_data();
-    let packet = get_root_as_packet(data);
-
-    packet.command_as_create().unwrap().schema()
-  }
-
-  fn build_create_table(builder: &mut flatbuffers::FlatBufferBuilder) {
-    let from = Some(builder.create_string("from"));
-    let to = Some(builder.create_string("to"));
-    let message = Some(builder.create_string("message"));
-
-    let fields: [flatbuffers::WIPOffset<FieldDescription>; 3] = [
-      flat::FieldDescription::create(
-        builder,
-        &FieldDescriptionArgs {
-          id: 0x01,
-          name: from,
-          type_: Blob,
-          size_: 32,
-        },
-      ),
-      flat::FieldDescription::create(
-        builder,
-        &FieldDescriptionArgs {
-          id: 0x02,
-          name: to,
-          type_: Blob,
-          size_: 32,
-        },
-      ),
-      flat::FieldDescription::create(
-        builder,
-        &FieldDescriptionArgs {
-          id: 0x03,
-          name: message,
-          type_: Blob,
-          size_: 4096,
-        },
-      )
-    ];
-
-    let fields_vector = Option::Some(
-      builder.create_vector(&fields)
-    );
-    let messages = Some(builder.create_string("messages"));
-    let schema = flat::TableSchema::create(
-      builder,
-      &TableSchemaArgs {
-        id: 0x01,
-        name: messages,
-        fields: fields_vector,
-      },
-    );
-
-    let engine = Some(builder.create_string("ram"));
-    let create_command = flat::CreateCommand::create(
-      builder,
-      &CreateCommandArgs {
-        schema: Some(schema),
-        engine: engine,
-      },
-    );
-
-    let packet = flat::Packet::create(
-      builder,
-      &PacketArgs {
-        crc: 0,
-        version: 1,
-        timeout: 1000,
-        command_type: Command::Create,
-        command: Some(create_command.as_union_value()),
-      },
-    );
-
-    builder.finish(packet, None);
-  }
 
   //TESTS
 
@@ -466,74 +412,5 @@ mod tests {
       });
       print!("\nRead random: {}\n", result);
     }
-  }
-
-  #[test]
-  fn multi_thread_insert_and_get() {
-    let column = Arc::new(create_column());
-    let mut threads : Vec<JoinHandle<bool>> = Vec::new();
-    let now = Instant::now();
-
-    const NUMBER_OF_ROWS : u32 = 4000000;
-
-    let write_index = Arc::new(AtomicU32::new(0));
-    for _ in 0..4 {
-      let column = column.clone();
-      let write_index = write_index.clone();
-      let result = thread::spawn(move || {
-        let mut builder_immediate = flatbuffers::FlatBufferBuilder::new_with_capacity(
-          2048
-        );
-        let immediate = build_immediate_string(
-          &mut builder_immediate,
-          "hello!",
-        );
-        loop {
-          let index = write_index.fetch_add(1, Ordering::SeqCst);
-          column.insert(index, &immediate);
-          if index >= NUMBER_OF_ROWS {
-            return true;
-          }
-        }
-      });
-      threads.push(result);
-    }
-
-    let read_index = Arc::new(AtomicU32::new(0));
-    for _ in 0..50 {
-      let column = column.clone();
-      let read_index = read_index.clone();
-      let result = thread::spawn( move || {
-        loop {
-          let index = read_index.fetch_add(1, Ordering::SeqCst);
-          if index >= NUMBER_OF_ROWS {
-            return true;
-          }
-          if let Some(x) = column.get_blob(NUMBER_OF_ROWS - index) {
-            assert_eq!(x, "hello!".as_bytes())
-          }
-        }
-      });
-      threads.push(result);
-    }
-
-    for thread in threads {
-      let join = thread.join();
-      assert_eq!(join.is_err(), false);
-      assert_eq!(join.is_ok(), true)
-    }
-
-    print!("\nMilliseconds: {}\n", now.elapsed().as_millis());
-  }
-
-  fn create_column() -> RamColumn {
-    let mut builder = flatbuffers::FlatBufferBuilder::new_with_capacity(
-      2048
-    );
-    let schema = build_schema(&mut builder);
-    let mut column = RamColumn::create(
-      &schema.fields().get(0)
-    );
-    column
   }
 }

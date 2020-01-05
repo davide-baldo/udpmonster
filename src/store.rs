@@ -1,20 +1,16 @@
-use crate::flat;
-use crate::ram;
-use crate::flat::{TableSchema, Row, Immediate};
+use crate::flat::{TableSchema, Row};
 use crate::ram::{RamTable};
-use crate::flat::FieldType::Blob;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::fmt::{Display, Formatter, Error};
+use std::fmt::{Display};
 use std::marker::PhantomData;
-use std::borrow::BorrowMut;
-use std::ops::Deref;
 use std::cell::UnsafeCell;
-use flatbuffers::{FlatBufferBuilder, Vector, WIPOffset};
+use flatbuffers::{FlatBufferBuilder};
 
 pub trait Table<'table>: Display + Sync {
   fn insert(&self,row: &crate::flat::Row );
-  fn copy_row<'a>(&self, index: u32, builder: &FlatBufferBuilder<'a>) -> Option<WIPOffset<Vector<'a, Immediate<'a>>>>;
+  fn copy_row<'a>(&self, index: u32, builder: &mut FlatBufferBuilder<'a>)
+    -> Option<flatbuffers::WIPOffset<Row<'a>>>;
 }
 
 pub struct TableSchemaEx<'ex> {
