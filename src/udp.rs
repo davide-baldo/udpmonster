@@ -1,6 +1,6 @@
 use std::net::{UdpSocket, SocketAddrV4};
 use std::thread;
-use crate::flat::{get_root_as_packet, PacketArgs, Command, FieldDescription, TableSchemaArgs, CreateCommandArgs, FieldDescriptionArgs, InsertCommandArgs, Row, RowArgs, Immediate, ImmediateArgs, FieldType, QueryCommandArgs, Sort, CommandResponse, ResponsePacket};
+use crate::flat::{get_root_as_packet, FilterValue, FilterType, PacketArgs, FilterArgs, Command, FieldDescription, TableSchemaArgs, CreateCommandArgs, FieldDescriptionArgs, InsertCommandArgs, Row, RowArgs, Immediate, ImmediateArgs, FieldType, QueryCommandArgs, Sort, CommandResponse, ResponsePacket};
 use crate::{commands, flat};
 use flatbuffers::{read_scalar, FlatBufferBuilder, WIPOffset};
 use std::sync::{Arc, Mutex};
@@ -46,7 +46,7 @@ impl UdpServer {
     let mut buffer_in: [u8; 64 * 1024] = [0; 64 * 1024];
     let mut builder = FlatBufferBuilder::new_with_capacity( 2048 );
 
-    self.socket.set_read_timeout(Some(Duration::from_millis(250)));
+    self.socket.set_read_timeout(Some(Duration::from_millis(250))).unwrap();
     loop {
       if self.stopped.load(Ordering::SeqCst) {
         return;
@@ -140,8 +140,8 @@ fn build_create_table(builder: &mut flatbuffers::FlatBufferBuilder) {
   let packet = flat::Packet::create(
     builder,
     &PacketArgs {
-      crc: 0,
       version: 1,
+      request_id: 0,
       timeout: 1000,
       command_type: Command::Create,
       command: Some(command.as_union_value()),
@@ -217,8 +217,8 @@ fn build_insert_rows(builder: &mut flatbuffers::FlatBufferBuilder) {
   let packet = flat::Packet::create(
     builder,
     &PacketArgs {
-      crc: 0,
       version: 1,
+      request_id: 0,
       timeout: 1000,
       command_type: Command::Insert,
       command: Some(command.as_union_value()),
@@ -232,6 +232,17 @@ fn build_insert_rows(builder: &mut flatbuffers::FlatBufferBuilder) {
 fn build_simple_query(builder: &mut flatbuffers::FlatBufferBuilder) {
   builder.reset();
 
+  let filter = flat::Filter::create(
+    builder,
+    &FilterArgs {
+      type_: FilterType::None,
+      left_value_type: FilterValue::NONE,
+      left_value: Option::None,
+      right_value_type: FilterValue::NONE,
+      right_value: Option::None
+    }
+  );
+
   let command = flat::QueryCommand::create(
     builder,
     &QueryCommandArgs {
@@ -239,15 +250,15 @@ fn build_simple_query(builder: &mut flatbuffers::FlatBufferBuilder) {
       max_results: 3,
       sort: Sort::None,
       sort_field: 0,
-      filter: None
+      filter: Some(filter)
     },
   );
 
   let packet = flat::Packet::create(
     builder,
     &PacketArgs {
-      crc: 0,
       version: 1,
+      request_id: 0,
       timeout: 1000,
       command_type: Command::Query,
       command: Some(command.as_union_value()),
@@ -270,7 +281,7 @@ fn create_insert_query() {
   let socket = UdpSocket::bind("0.0.0.0:0" ).unwrap();
 
  // socket.set_read_timeout(Option::from(Duration::from_millis(500)));
-  socket.set_write_timeout(Option::from(Duration::from_millis(500)));
+  socket.set_write_timeout(Option::from(Duration::from_millis(500))).unwrap();
 
   {
     //create table & response
@@ -323,7 +334,7 @@ fn create_insert_query() {
     );
 
     let query = response.response_as_query().unwrap();
-    assert_eq!(query.rows().unwrap().len(), 1);
+    assert_eq!(query.rows().unwrap().len(), 3);
 
     let row = query.rows().unwrap().get(0);
     assert_eq!(row.data().len(), 3);

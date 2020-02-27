@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use std::io::Error;
 use flatbuffers::FlatBufferBuilder;
 use crate::ram::{RamColumn};
@@ -24,7 +26,7 @@ const PROT_EXEC: i32 = 0x4;
 
 pub fn create_memory_mapping<T>() -> &'static mut [T] {
   unsafe {
-    let size: usize = 0x40000000000; //4TB
+    let size: usize = 1024*1024*4096;
     let pointer = libc::mmap(
       0x0 as *mut libc::c_void,
       size,
@@ -142,8 +144,8 @@ pub fn build_create_table(builder: &mut flatbuffers::FlatBufferBuilder) {
   let packet = flat::Packet::create(
     builder,
     &PacketArgs {
-      crc: 0,
       version: 1,
+      request_id: 0,
       timeout: 1000,
       command_type: Command::Create,
       command: Some(create_command.as_union_value()),

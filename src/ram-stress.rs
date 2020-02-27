@@ -40,10 +40,10 @@ pub fn multi_thread_insert_and_get() {
   let mut threads : Vec<JoinHandle<bool>> = Vec::new();
   let now = Instant::now();
 
-  const NUMBER_OF_ROWS : u32 = 40000000;
+  const NUMBER_OF_ROWS : u32 = 400000000;
 
   let write_index = Arc::new(AtomicU32::new(0));
-  for _ in 0..32 {
+  for _ in 0..8 {
     let column = column.clone();
     let write_index = write_index.clone();
     let result = thread::spawn(move || {

@@ -2,7 +2,7 @@ use crate::flat::{Immediate, Row, TableSchema, FieldDescription, ImmediateArgs, 
 use crate::store::{Table, TableSchemaEx};
 use crate::utils::{create_memory_mapping, create_column};
 use std::fmt::{Display, Formatter};
-use std::sync::atomic::{AtomicUsize, Ordering, AtomicU32, AtomicBool};
+use std::sync::atomic::{AtomicUsize, Ordering, AtomicU32, AtomicBool, fence, compiler_fence};
 use std::cell::{UnsafeCell, Cell};
 use byteorder::{LittleEndian, ByteOrder};
 use std::ptr::write_bytes;
@@ -35,7 +35,9 @@ struct ColumnDataBlob {
   next_data_position: AtomicUsize,
   next_index_to_initialize: AtomicU32,
   deleted_memory: u64,
-  is_initializing_data_block: AtomicBool
+  is_initializing_data_block: AtomicBool,
+  block_split: u8,
+  block_num: u8,
 }
 
 unsafe impl Sync for ColumnDataBlob { }
@@ -43,7 +45,7 @@ unsafe impl Sync for ColumnDataBlob { }
 const ENTRY_PER_BLOB_BLOCK: u32 = 18;
 
 impl ColumnDataBlob {
-  fn create() -> Self {
+  fn create(block_split: u8, block_num: u8) -> Self {
     ColumnDataBlob {
       data: Box::new(create_memory_mapping()),
       index: Box::new(create_memory_mapping()),
@@ -51,6 +53,8 @@ impl ColumnDataBlob {
       next_index_to_initialize: AtomicU32::new(0),
       is_initializing_data_block: AtomicBool::new(false),
       deleted_memory: 0,
+      block_split: block_split,
+      block_num: block_num,
     }
   }
 
@@ -94,6 +98,8 @@ impl ColumnDataBlob {
 
   #[inline]
   fn allocate_data(&mut self, size: usize) -> usize {
+    let mut loop_count = 0;
+
     loop {
       let current = self.next_data_position.load(Ordering::Relaxed);
 
@@ -105,6 +111,12 @@ impl ColumnDataBlob {
 
       if current == next_data_index {
         return current;
+      } else {
+        loop_count += 1;
+        if loop_count == 2 {
+          thread::yield_now();
+          loop_count = 0;
+        }
       }
     }
   }
@@ -115,9 +127,9 @@ impl ColumnDataBlob {
   ///
   #[inline]
   fn calc_index_offset(index: u32) -> (usize,usize) {
-    let blocks_num = (index as usize / 18) * 64; //numbers of blocks
+    let block_begin_offset = (index as usize / 18) * 64 as usize; //numbers of blocks
     let relative_index =  3 * (index % 18) as usize + 8; //relative to the single block
-    (blocks_num, blocks_num+relative_index)
+    (block_begin_offset, block_begin_offset +relative_index)
   }
 
   #[inline]
@@ -135,6 +147,7 @@ impl ColumnDataBlob {
       return;
     }
 
+    let mut loop_count = 0;
     loop {
       let result = self.is_initializing_data_block.compare_and_swap(
         false, true,
@@ -153,19 +166,27 @@ impl ColumnDataBlob {
       }
 
       if result == false {
+        let block_begin_offset = ColumnDataBlob::calc_index_block_begin_offset(
+          self.next_index_to_initialize.load(Ordering::Relaxed)
+        );
         let abs_data_offset = self.next_data_position.load(Ordering::Relaxed);
-        let block_begin_offset = ColumnDataBlob::calc_index_block_begin_offset(index);
-        unsafe { write_bytes(&mut self.index[block_begin_offset], 0xFF, 64); }
         LittleEndian::write_u64(
           &mut self.index[block_begin_offset..block_begin_offset + 8],
           abs_data_offset as u64,
         );
+        unsafe { write_bytes(&mut self.index[block_begin_offset+8], 0xFF, 64-8); }
+
+        //make sure index is written before `next_index_to_initialize`
+        fence(Ordering::Release);
         self.next_index_to_initialize.store(next_index_to_initialize+18, Ordering::Relaxed);
         self.is_initializing_data_block.store(false, Ordering::Relaxed);
-        return;
+      } else {
+        loop_count += 1;
+        if loop_count == 2 {
+          thread::yield_now();
+          loop_count = 0;
+        }
       }
-
-      thread::yield_now();
     }
   }
 
@@ -175,16 +196,24 @@ impl ColumnDataBlob {
     self.assert_block(index);
     let blob = immediate.blob().unwrap();
     let blob_len = blob.len();
+
     let abs_data_offset = self.allocate_data(
       blob_len + 2
     );
+
+    //make sure index is updated
+    fence(Ordering::Acquire);
 
     let (block_begin_offset,abs_index_offset) = ColumnDataBlob::calc_index_offset(
       index
     );
     let abs_data_block_begin = LittleEndian::read_u64(
-      &mut self.index[block_begin_offset..block_begin_offset + 8],
+      &self.index[block_begin_offset..block_begin_offset + 8],
     ) as usize;
+
+    if abs_data_offset < abs_data_block_begin {
+      println!("{} {}", abs_data_offset, abs_data_block_begin)
+    }
 
     assert!(abs_data_offset >= abs_data_block_begin);
     assert!(abs_data_offset - abs_data_block_begin < 16*1024*1024);
@@ -206,8 +235,8 @@ impl ColumnDataBlob {
       );
     }
 
-    //TODO: insert memory barrier here?
-    //to avoid index pointing toward an non-initialed space
+    //make sure that if the index is updated, also the data is updated
+    fence(Ordering::Release);
 
     LittleEndian::write_u24(
       &mut self.index[abs_index_offset as usize..abs_index_offset + 3],
@@ -222,37 +251,52 @@ pub struct RamColumn {
   id: u8,
   type_: crate::flat::FieldType,
   size: u16,
-  blob_data: Option<Cell<ColumnDataBlob>>
+  blob_data: Vec<Cell<ColumnDataBlob>>
 }
 
 unsafe impl Sync for RamColumn {}
 
+///
+/// This implementation split the column in 16 blocks to reduce concurrency
+///
 impl RamColumn {
   #[inline]
   pub fn insert(&self, index: u32, immediate: &Immediate) -> u32 {
-    self.blob_data().insert(index, immediate)
+    self.blob_data(index).insert(index >> 4, immediate)
   }
 
-  pub fn size(&self) -> usize {
-    self.blob_data().size()
+  pub fn size(&self, index: u32) -> usize {
+    let mut size: usize = 0;
+    for i in 0..16 {
+      size += self.blob_data(i).size()
+    }
+    size
   }
 
   #[inline]
-  pub fn blob_data(&self) -> &mut ColumnDataBlob {
-    unsafe { &mut *self.blob_data.as_ref().unwrap().as_ptr() }
+  pub fn blob_data(&self, index: u32) -> &mut ColumnDataBlob {
+    unsafe { &mut *self.blob_data.get((index & 0xF) as usize).as_ref().unwrap().as_ptr() }
   }
 
   #[inline]
   pub fn get_blob(&self, index: u32) -> Option<&[u8]> {
-    self.blob_data().get(index)
+    self.blob_data(index).get(index >> 4)
   }
 
   pub fn create(field: &FieldDescription) -> Self {
+    let mut blob_vector = Vec::new();
+    for i in 0..16 {
+      blob_vector.push(Cell::new(ColumnDataBlob::create(
+        16,
+        i
+      )))
+    }
+    
     RamColumn {
       id: field.id(),
       type_: field.type_(),
       size: field.size_(),
-      blob_data: Some(Cell::new(ColumnDataBlob::create()))
+      blob_data: blob_vector
     }
   }
 }
@@ -296,8 +340,12 @@ impl<'ram_table> Table<'ram_table> for RamTable<'ram_table> {
     }
   }
 
-  fn copy_row<'a>(&self, index: u32, builder: &mut FlatBufferBuilder<'a>) ->
-    Option<flatbuffers::WIPOffset<Row<'a>>> {
+  fn copy_row<'a>(
+    &self, index: u32,
+    builder: &mut FlatBufferBuilder<'a>,
+    max_size: u16
+  ) ->
+    (bool, Option<flatbuffers::WIPOffset<Row<'a>>>) {
 
     let num_items = self.columns().len();
     let mut column_list: Vec<WIPOffset<Immediate>> = Vec::new();
@@ -307,6 +355,9 @@ impl<'ram_table> Table<'ram_table> for RamTable<'ram_table> {
       let blob: Option<WIPOffset<Vector<u8>>>;
 
       if let Some(value) = column.get_blob(index) {
+        if builder.used_space() + value.len() > max_size as usize {
+          return (true, None);
+        }
         blob = Some(builder.create_vector_direct(value));
       } else {
         blob = None;
@@ -329,7 +380,7 @@ impl<'ram_table> Table<'ram_table> for RamTable<'ram_table> {
       data: data
     });
 
-    Some(row)
+    (false, Some(row))
   }
 }
 

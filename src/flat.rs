@@ -710,8 +710,8 @@ impl<'a> Packet<'a> {
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
         args: &'args PacketArgs) -> flatbuffers::WIPOffset<Packet<'bldr>> {
       let mut builder = PacketBuilder::new(_fbb);
+      builder.add_request_id(args.request_id);
       if let Some(x) = args.command { builder.add_command(x); }
-      builder.add_crc(args.crc);
       builder.add_timeout(args.timeout);
       builder.add_version(args.version);
       builder.add_command_type(args.command_type);
@@ -721,33 +721,33 @@ impl<'a> Packet<'a> {
     #[allow(unused_mut)]
     pub fn write_to<'wr_to>(&self,
           _fbb: &mut flatbuffers::FlatBufferBuilder<'wr_to>) -> flatbuffers::WIPOffset<Packet<'wr_to>> {
+      let request_id = self.request_id();
       let command = self.command_write_to(_fbb);
-      let crc = self.crc();
       let timeout = self.timeout();
       let version = self.version();
       let command_type = self.command_type();
       let mut builder = PacketBuilder::new(_fbb);
+      builder.add_request_id(request_id);
       command.map(|u| builder.add_command(u));
-      builder.add_crc(crc);
       builder.add_timeout(timeout);
       builder.add_version(version);
       builder.add_command_type(command_type);
       builder.finish()
     }
 
-    pub const VT_CRC: flatbuffers::VOffsetT = 4;
-    pub const VT_VERSION: flatbuffers::VOffsetT = 6;
+    pub const VT_VERSION: flatbuffers::VOffsetT = 4;
+    pub const VT_REQUEST_ID: flatbuffers::VOffsetT = 6;
     pub const VT_TIMEOUT: flatbuffers::VOffsetT = 8;
     pub const VT_COMMAND_TYPE: flatbuffers::VOffsetT = 10;
     pub const VT_COMMAND: flatbuffers::VOffsetT = 12;
 
   #[inline]
-  pub fn crc(&self) -> u32 {
-    self._tab.get::<u32>(Packet::VT_CRC, Some(0)).unwrap()
-  }
-  #[inline]
   pub fn version(&self) -> u16 {
     self._tab.get::<u16>(Packet::VT_VERSION, Some(0)).unwrap()
+  }
+  #[inline]
+  pub fn request_id(&self) -> u64 {
+    self._tab.get::<u64>(Packet::VT_REQUEST_ID, Some(0)).unwrap()
   }
   #[inline]
   pub fn timeout(&self) -> u16 {
@@ -848,8 +848,8 @@ impl<'a> Packet<'a> {
 }
 
 pub struct PacketArgs {
-    pub crc: u32,
     pub version: u16,
+    pub request_id: u64,
     pub timeout: u16,
     pub command_type: Command,
     pub command: Option<flatbuffers::WIPOffset<flatbuffers::UnionWIPOffset>>,
@@ -858,8 +858,8 @@ impl<'a> Default for PacketArgs {
     #[inline]
     fn default() -> Self {
         PacketArgs {
-            crc: 0,
             version: 0,
+            request_id: 0,
             timeout: 0,
             command_type: Command::NONE,
             command: None, // required field
@@ -872,12 +872,12 @@ pub struct PacketBuilder<'a: 'b, 'b> {
 }
 impl<'a: 'b, 'b> PacketBuilder<'a, 'b> {
   #[inline]
-  pub fn add_crc(&mut self, crc: u32) {
-    self.fbb_.push_slot::<u32>(Packet::VT_CRC, crc, 0);
-  }
-  #[inline]
   pub fn add_version(&mut self, version: u16) {
     self.fbb_.push_slot::<u16>(Packet::VT_VERSION, version, 0);
+  }
+  #[inline]
+  pub fn add_request_id(&mut self, request_id: u64) {
+    self.fbb_.push_slot::<u64>(Packet::VT_REQUEST_ID, request_id, 0);
   }
   #[inline]
   pub fn add_timeout(&mut self, timeout: u16) {
@@ -936,8 +936,8 @@ impl<'a> ResponsePacket<'a> {
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
         args: &'args ResponsePacketArgs) -> flatbuffers::WIPOffset<ResponsePacket<'bldr>> {
       let mut builder = ResponsePacketBuilder::new(_fbb);
+      builder.add_request_id(args.request_id);
       if let Some(x) = args.response { builder.add_response(x); }
-      builder.add_crc(args.crc);
       builder.add_version(args.version);
       builder.add_response_type(args.response_type);
       builder.finish()
@@ -946,30 +946,30 @@ impl<'a> ResponsePacket<'a> {
     #[allow(unused_mut)]
     pub fn write_to<'wr_to>(&self,
           _fbb: &mut flatbuffers::FlatBufferBuilder<'wr_to>) -> flatbuffers::WIPOffset<ResponsePacket<'wr_to>> {
+      let request_id = self.request_id();
       let response = self.response_write_to(_fbb);
-      let crc = self.crc();
       let version = self.version();
       let response_type = self.response_type();
       let mut builder = ResponsePacketBuilder::new(_fbb);
+      builder.add_request_id(request_id);
       response.map(|u| builder.add_response(u));
-      builder.add_crc(crc);
       builder.add_version(version);
       builder.add_response_type(response_type);
       builder.finish()
     }
 
-    pub const VT_CRC: flatbuffers::VOffsetT = 4;
-    pub const VT_VERSION: flatbuffers::VOffsetT = 6;
+    pub const VT_VERSION: flatbuffers::VOffsetT = 4;
+    pub const VT_REQUEST_ID: flatbuffers::VOffsetT = 6;
     pub const VT_RESPONSE_TYPE: flatbuffers::VOffsetT = 8;
     pub const VT_RESPONSE: flatbuffers::VOffsetT = 10;
 
   #[inline]
-  pub fn crc(&self) -> u32 {
-    self._tab.get::<u32>(ResponsePacket::VT_CRC, Some(0)).unwrap()
-  }
-  #[inline]
   pub fn version(&self) -> u16 {
     self._tab.get::<u16>(ResponsePacket::VT_VERSION, Some(0)).unwrap()
+  }
+  #[inline]
+  pub fn request_id(&self) -> u64 {
+    self._tab.get::<u64>(ResponsePacket::VT_REQUEST_ID, Some(0)).unwrap()
   }
   #[inline]
   pub fn response_type(&self) -> CommandResponse {
@@ -1066,8 +1066,8 @@ impl<'a> ResponsePacket<'a> {
 }
 
 pub struct ResponsePacketArgs {
-    pub crc: u32,
     pub version: u16,
+    pub request_id: u64,
     pub response_type: CommandResponse,
     pub response: Option<flatbuffers::WIPOffset<flatbuffers::UnionWIPOffset>>,
 }
@@ -1075,8 +1075,8 @@ impl<'a> Default for ResponsePacketArgs {
     #[inline]
     fn default() -> Self {
         ResponsePacketArgs {
-            crc: 0,
             version: 0,
+            request_id: 0,
             response_type: CommandResponse::NONE,
             response: None, // required field
         }
@@ -1088,12 +1088,12 @@ pub struct ResponsePacketBuilder<'a: 'b, 'b> {
 }
 impl<'a: 'b, 'b> ResponsePacketBuilder<'a, 'b> {
   #[inline]
-  pub fn add_crc(&mut self, crc: u32) {
-    self.fbb_.push_slot::<u32>(ResponsePacket::VT_CRC, crc, 0);
-  }
-  #[inline]
   pub fn add_version(&mut self, version: u16) {
     self.fbb_.push_slot::<u16>(ResponsePacket::VT_VERSION, version, 0);
+  }
+  #[inline]
+  pub fn add_request_id(&mut self, request_id: u64) {
+    self.fbb_.push_slot::<u64>(ResponsePacket::VT_REQUEST_ID, request_id, 0);
   }
   #[inline]
   pub fn add_response_type(&mut self, response_type: CommandResponse) {
@@ -2344,13 +2344,13 @@ impl<'a> QueryCommand<'a> {
     #[allow(unused_mut)]
     pub fn write_to<'wr_to>(&self,
           _fbb: &mut flatbuffers::FlatBufferBuilder<'wr_to>) -> flatbuffers::WIPOffset<QueryCommand<'wr_to>> {
-      let filter =  { match self.filter() { Some(u) => Some(u.write_to(_fbb)), _ => None } };
+      let filter = self.filter().write_to(_fbb);
       let max_results = self.max_results();
       let table_id = self.table_id();
       let sort_field = self.sort_field();
       let sort = self.sort();
       let mut builder = QueryCommandBuilder::new(_fbb);
-      if let Some(u) = filter { builder.add_filter(u); } 
+      builder.add_filter(filter);
       builder.add_max_results(max_results);
       builder.add_table_id(table_id);
       builder.add_sort_field(sort_field);
@@ -2381,8 +2381,8 @@ impl<'a> QueryCommand<'a> {
     self._tab.get::<u8>(QueryCommand::VT_SORT_FIELD, Some(0)).unwrap()
   }
   #[inline]
-  pub fn filter(&self) -> Option<Filter<'a>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<Filter<'a>>>(QueryCommand::VT_FILTER, None)
+  pub fn filter(&self) -> Filter<'a> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<Filter<'a>>>(QueryCommand::VT_FILTER, None).unwrap()
   }
 }
 
@@ -2401,7 +2401,7 @@ impl<'a> Default for QueryCommandArgs<'a> {
             max_results: 0,
             sort: Sort::None,
             sort_field: 0,
-            filter: None,
+            filter: None, // required field
         }
     }
 }
@@ -2441,6 +2441,7 @@ impl<'a: 'b, 'b> QueryCommandBuilder<'a, 'b> {
   #[inline]
   pub fn finish(self) -> flatbuffers::WIPOffset<QueryCommand<'a>> {
     let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, QueryCommand::VT_FILTER,"filter");
     flatbuffers::WIPOffset::new(o.value())
   }
 }

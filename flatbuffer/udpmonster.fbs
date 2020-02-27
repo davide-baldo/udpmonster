@@ -135,7 +135,7 @@ table QueryCommand {
   max_results : uint16;
   sort        : Sort;
   sort_field  : uint8;
-  filter      : Filter;
+  filter      : Filter (required);
 }
 
 /* Update Command */

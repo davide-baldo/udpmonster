@@ -34,7 +34,7 @@ incremental = false
 overflow-checks = false
 
 [dependencies]
-flatbuffers = { git = "file:///home/davide/git/flatbuffers/",  branch = "master" }
+flatbuffers = { git = "file:///home/davide/git/flatbuffers/",  ref = "39dd238542369a1d27bff5a32fee5ffd710cf263" }
 base64 = "0.11.0"
 crc32c = "0.4.0"
 lockfree = "0.5.1"

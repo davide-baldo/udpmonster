@@ -9,8 +9,12 @@ use flatbuffers::{FlatBufferBuilder};
 
 pub trait Table<'table>: Display + Sync {
   fn insert(&self,row: &crate::flat::Row );
-  fn copy_row<'a>(&self, index: u32, builder: &mut FlatBufferBuilder<'a>)
-    -> Option<flatbuffers::WIPOffset<Row<'a>>>;
+
+  /**
+  returns if the buffer is full and the row location
+  */
+  fn copy_row<'a>(&self, index: u32, builder: &mut FlatBufferBuilder<'a>, max_size: u16)
+    -> (bool, Option<flatbuffers::WIPOffset<Row<'a>>>);
 }
 
 pub struct TableSchemaEx<'ex> {
@@ -44,7 +48,7 @@ pub struct Store {
 }
 
 impl Store {
-  pub fn create<'a>() -> Store {
+  pub fn create() -> Store {
     Store {
       table_map: UnsafeCell::new(HashMap::new()),
     }
