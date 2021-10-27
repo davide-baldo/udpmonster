@@ -1,0 +1,4 @@
+This is toy project database similar to redis which only uses udp packets built on top of flatbuffer to construct commands and data.
+It currently handles in-ram only writes with a limit on desktop pc of 2/3 MOPS, only a handful of commands are implemented.
+Useless to say: do not use in production and do not expect any support :)
+
